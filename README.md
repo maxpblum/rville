@@ -32,3 +32,13 @@ Then update the dependencies list:
 To install dependencies in a new clone of this repository:
 
 `pip3 install -r requirements.txt -t lib/`
+
+To check types:
+
+Make sure `mypy` is installed:
+
+`pip3 install mypy`
+
+Then:
+
+`python3 -m mypy src`
