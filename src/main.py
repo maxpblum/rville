@@ -106,18 +106,13 @@ def solve(
     model.add(sum(time_slots_assigned_to) >= 4)
     model.add(sum(time_slots_assigned_to) <= 5)
 
-  # Optimize for minimum badness score for a given person.
-  badness_scores = collections.Counter()
-
-  # 10 points any time a partnership is repeated.
-  for man, woman in itertools.product(men, women):
-    # NEED TO IMPLEMENT SOMEHOW
-    pass
-
-  model.minimize(sum(badness_scores.values()))
-
   solver = cp_model.CpSolver()
   status = solver.Solve(model)
+
+  # No two players should appear in the same match more than once.
+  for man, woman in itertools.product(men, women):
+    joint_appearances = []
+    # IMPLEMENT
 
   final_assignments: list[FinalAssignment] = []
 
