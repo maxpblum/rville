@@ -26,6 +26,14 @@ def solve(
   courts = one_based_range(prefix='C', count=courts_count)
 
   assignments = {}
+  # For each time slot in each court, for each possible grouping of the various
+  # men and women into the teams for that court at that time, canonicalized by
+  # putting the lower-numbered man on team 1, create an assignment boolean.
+  for time_slot, court in itertools.product(time_slots, courts):
+      for t1_man in men[:-1]:
+          pass
+
+  # Get rid of this.
   for time_slot in time_slots:
     for court in courts:
       for team in teams:
