@@ -19,19 +19,29 @@ This program will use Google's `ortools` package to optimize this.
 
 ## Dev stuff
 
-To add a new python dependency:
+Before doing anything with dependencies:
 
-`pip3 install <<package name>> -t lib/`
+`python3 -m venv ~/venvs/rville`
 
-(`lib/` is where dependencies go, and is gitignored.)
+(or substitute desired `venv` path)
 
-Then update the dependencies list:
+This may require installing `python3` or the Python `venv` package via a package manager.
 
-`pip3 freeze > requirements.txt`
+Then, activate the `venv`:
+
+`source ~/venvs/rville/bin/activate`
+
+When stopping: `deactivate` (no directory, no `source`, it's an executable in the `PATH`)
+
+With `venv` activated, to add a new python dependency:
+
+`pip3 install <<package name>>`
+
+Then add that version of that package to `requirements.txt`.
 
 To install dependencies in a new clone of this repository:
 
-`pip3 install -r requirements.txt -t lib/`
+`pip3 install -r requirements.txt`
 
 To check types:
 
