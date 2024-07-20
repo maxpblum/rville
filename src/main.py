@@ -4,12 +4,17 @@ import itertools
 from ortools.sat.python import cp_model
 from ortools.sat import cp_model_pb2
 
-FinalAssignment = collections.namedtuple(
-    'FinalAssignment', ['time_slot', 'court', 'team', 'man', 'woman'])
-
-
-def assignment_name(time_slot, court, team, sex, player):
-  return f'{time_slot}_{court}_{team}_{sex}_{player}'
+Assignment = collections.namedtuple(
+    'Assignment',
+    [
+        'time_slot',
+        'court',
+        'team_one_man',
+        'team_one_woman',
+        'team_two_man',
+        'team_two_woman',
+    ],
+)
 
 
 def one_based_range(prefix: str, count: int) -> list[str]:
@@ -18,33 +23,22 @@ def one_based_range(prefix: str, count: int) -> list[str]:
 
 def solve(
     men_count: int, women_count: int, courts_count: int, time_slots: list[str]
-) -> tuple[cp_model_pb2.CpSolverStatus, list[FinalAssignment]]:
+) -> tuple[cp_model_pb2.CpSolverStatus, list[Assignment]]:
   model = cp_model.CpModel()
   men = one_based_range(prefix='M', count=men_count)
   women = one_based_range(prefix='W', count=women_count)
   teams = ['T1', 'T2']
   courts = one_based_range(prefix='C', count=courts_count)
 
-  assignments = {}
+  assignments: dict[Assignment, cp_model.IntVar] = {}
   # For each time slot in each court, for each possible grouping of the various
   # men and women into the teams for that court at that time, canonicalized by
   # putting the lower-numbered man on team 1, create an assignment boolean.
-  for time_slot, court in itertools.product(time_slots, courts):
-      for t1_man in men[:-1]:
-          pass
+  for time_slot, court, (t1_man_idx, t1_man), (t1_woman_idx, t1_woman) in itertools.product(time_slots, courts, enumerate(men[:-1]), enumerate(women)):
+      for t2_man, t2_woman in itertools.product(men[t1_man_idx + 1:], women[:t1_woman_idx] + women[t1_woman_idx + 1:]):
+          assignments[Assignment(time_slot, court, t1_man, t1_woman, t2_man, t2_woman)] = model.NewBoolVar(f'{time_slot}_{court}_T1_{t1_man}_{t1_woman}_T2_{t2_man}_{t2_woman}')
 
-  # Get rid of this.
-  for time_slot in time_slots:
-    for court in courts:
-      for team in teams:
-        for man in men:
-          name = assignment_name(time_slot, court, team, 'man', man)
-          assignments[name] = model.NewBoolVar(name)
-        for woman in women:
-          name = assignment_name(time_slot, court, team, 'woman', woman)
-          assignments[name] = model.NewBoolVar(name)
-
-  # For a given court at a given time, there should either be no one or be exactly one man and one woman.
+  # For a given court at a given time, there should be zero or one group assignments.
   for time_slot, court in itertools.product(time_slots, courts):
     team_one_men_assigned = [
         assignments[assignment_name(time_slot, court, 'T1', 'man', man)]
