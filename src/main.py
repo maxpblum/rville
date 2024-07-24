@@ -44,11 +44,8 @@ def solve(
   for time_slot, court in itertools.product(time_slots, courts):
     model.add(sum(v for k, v in assignments.items() if k.time_slot == time_slot and k.court == court) <= 1)
 
-  # Every player should have exactly three matches, except the last two of each gender, who
-  # may play one more to balance things out.
-  for p in men[:-2] + women[:-2]:
-    model.add(sum(v for k, v in assignments.items() if player_present(p, k)) == 3)
-  for p in men[-2:] + women[-2:]:
+  # Every player should have between three and four matches.
+  for p in men + women:
     model.add(sum(v for k, v in assignments.items() if player_present(p, k)) >= 3)
     model.add(sum(v for k, v in assignments.items() if player_present(p, k)) <= 4)
 
