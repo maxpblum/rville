@@ -93,7 +93,7 @@ def generate_csv(filename: str, men_count: int, women_count: int,
 
 def main():
   for men_count, women_count, courts_count in itertools.product(
-      range(14, 16), range(14, 16), range(3, 4)):
+      range(14, 15), range(14, 15), range(3, 4)):
     print(
         f'Solving for {men_count} men, {women_count} women, {courts_count} courts.'
     )
