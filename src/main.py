@@ -54,8 +54,8 @@ def solve(
     model.add(sum(v for k, v in assignments.items() if player_present(p1, k) and player_present(p2, k)) <= 1)
 
   # Every player should have a lunch break.
-  for p in men + women:
-    model.add(sum(v for k, v in assignments.items() if player_present(p, k) and k.time_slot in ['12pm', '1pm']) <= 1)
+  # for p in men + women:
+    # model.add(sum(v for k, v in assignments.items() if player_present(p, k) and k.time_slot in ['12pm', '1pm']) <= 1)
 
   # Every player is in at most one match per time slot.
   for p, time_slot in itertools.product(men + women, time_slots):
