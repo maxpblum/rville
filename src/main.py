@@ -44,10 +44,13 @@ def solve(
   for time_slot, court in itertools.product(time_slots, courts):
     model.add(sum(v for k, v in assignments.items() if k.time_slot == time_slot and k.court == court) <= 1)
 
-  # Every player should have four or five matches.
-  for p in men + women:
-    model.add(sum(v for k, v in assignments.items() if player_present(p, k)) >= 4)
-    model.add(sum(v for k, v in assignments.items() if player_present(p, k)) <= 5)
+  # Every player should have exactly three matches, except the last two of each gender, who
+  # may play one more to balance things out.
+  for p in men[:-2] + women[:-2]:
+    model.add(sum(v for k, v in assignments.items() if player_present(p, k)) == 3)
+  for p in men[-2:] + women[-2:]:
+    model.add(sum(v for k, v in assignments.items() if player_present(p, k)) >= 3)
+    model.add(sum(v for k, v in assignments.items() if player_present(p, k)) <= 4)
 
   # No two players should be in the same match twice.
   for p1, p2 in itertools.combinations(men + women, 2):
@@ -93,7 +96,7 @@ def generate_csv(filename: str, men_count: int, women_count: int,
 
 def main():
   for men_count, women_count, courts_count in itertools.product(
-      range(11, 12), range(11, 12), range(5, 6)):
+      range(14, 16), range(14, 16), range(3, 4)):
     print(
         f'Solving for {men_count} men, {women_count} women, {courts_count} courts.'
     )
@@ -102,7 +105,7 @@ def main():
         men_count=men_count,
         women_count=women_count,
         courts_count=courts_count,
-        time_slots=['9am', '10am', '11am', '12pm', '1pm', '2pm', '3pm', '4pm'])
+        time_slots=['9am', '10am', '11am', '12pm', '1pm', '2pm', '3pm'])
     if status == cp_model.OPTIMAL:
       print('Solution found.')
     else:
