@@ -1,6 +1,7 @@
 import argparse
-import collections
+import copy
 import csv
+from dataclasses import dataclass
 import itertools
 import math
 import random
@@ -8,32 +9,49 @@ import textwrap
 from ortools.sat.python import cp_model
 from ortools.sat import cp_model_pb2
 
-Assignment = collections.namedtuple(
-    "Assignment",
-    [
-        "time_slot",
-        "court",
-        "m_a",
-        "m_b",
-        "w_a",
-        "w_b",
-    ],
-)
+@dataclass
+class CourtAssignment:
+    m_a: str
+    m_b: str
+    w_a: str
+    w_b: str
+
+@dataclass
+class Assignment:
+    time_slot: str
+    courts: list[CourtAssignment]
 
 
 def one_based_range(prefix: str, count: int) -> list[str]:
     return [f"{prefix}{n}" for n in range(1, count + 1)]
 
 
-def player_present(player: str, assignment: Assignment) -> bool:
+def player_present_at_court(player: str, court_assignment: CourtAssignment) -> bool:
     if player.startswith("M"):
-        return assignment.m_a == player or assignment.m_b == player
-    return assignment.w_a == player or assignment.w_b == player
+        return court_assignment.m_a == player or court_assignment.m_b == player
+    return court_assignment.w_a == player or court_assignment.w_b == player
 
 
-def maybe_switch_women(a: Assignment) -> Assignment:
-    new_w_a, new_w_b = (a.w_a, a.w_b) if random.random() < 0.5 else (a.w_b, a.w_a)
-    return a._replace(w_a=new_w_a, w_b=new_w_b)
+def player_present(player: str, assignment: Assignment) -> bool:
+    return any(player_present_at_court(player, court_assignment for court_assignment in assignment.courts))
+
+
+def shuffled(a: Assignment) -> Assignment:
+    a = copy.deepcopy(a)
+    random.shuffle(a.courts)
+    for c in a.courts:
+        if random.random() < 0.5:
+            a.w_a, a.w_b = a.w_b, a.w_a
+
+
+def all_possible_sets_of_quads_per_time_slot(men: int, women: int, courts_count: int) -> list[tuple[tuple[str, str], tuple[str, str]]]:
+    if len(men) < 2 or len(women) < 2 or courts_count == 0:
+        yield from []
+    for m_a_idx, m_a in enumerate(men[:-(courts_count - 1)]):
+        for m_b in men[m_a_idx + 1:]:
+            # We probably don't want a for loop if this is recursive.
+            pass
+
 
 
 def solve(
@@ -62,12 +80,8 @@ def solve(
     assignments: dict[Assignment, cp_model.IntVar] = {}
 
     # NEW STRATEGY TODO: Make an assignment represent an ENTIRE time slot and all of the people assigned to each court. Do this to leverage itertools.combinations to get rid of redundant assignments of the same grouping to different courts in the same time slot.
-    for time_slot, court, (m_a, m_b), (w_a, w_b) in itertools.product(
-        time_slots,
-        courts,
-        itertools.combinations(men, 2),
-        itertools.combinations(women, 2),
-    ):
+    for time_slot in time_slots:
+        quads = itertools.combinations(itertools.product(
         assignments[Assignment(time_slot, court, m_a, m_b, w_a, w_b)] = (
             model.NewBoolVar(f"{time_slot}_{court}_{m_a}_{m_b}_{w_a}_{w_b}")
         )
