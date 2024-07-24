@@ -2,6 +2,9 @@ import argparse
 import collections
 import csv
 import itertools
+import math
+import random
+import textwrap
 from ortools.sat.python import cp_model
 from ortools.sat import cp_model_pb2
 
@@ -28,16 +31,37 @@ def player_present(player: str, assignment: Assignment) -> bool:
     return assignment.w_a == player or assignment.w_b == player
 
 
+def maybe_switch_women(a: Assignment) -> Assignment:
+    new_w_a, new_w_b = (a.w_a, a.w_b) if random.random() < 0.5 else (a.w_b, a.w_a)
+    return a._replace(w_a=new_w_a, w_b=new_w_b)
+
+
 def solve(
-    men_count: int, women_count: int, courts_count: int, time_slots: list[str]
+    men_count: int,
+    women_count: int,
+    courts_count: int,
 ) -> tuple[cp_model_pb2.CpSolverStatus, list[Assignment]]:
     model = cp_model.CpModel()
     men = one_based_range(prefix="M", count=men_count)
     women = one_based_range(prefix="W", count=women_count)
     courts = one_based_range(prefix="C", count=courts_count)
+    # We'd never really go to 6pm, but these are only theoretical time slots.
+    time_slots = [
+        "9am",
+        "10am",
+        "11am",
+        "12pm",
+        "1pm",
+        "2pm",
+        "3pm",
+        "4pm",
+        # "5pm",
+        # "6pm",
+    ]
 
     assignments: dict[Assignment, cp_model.IntVar] = {}
 
+    # NEW STRATEGY TODO: Make an assignment represent an ENTIRE time slot and all of the people assigned to each court. Do this to leverage itertools.combinations to get rid of redundant assignments of the same grouping to different courts in the same time slot.
     for time_slot, court, (m_a, m_b), (w_a, w_b) in itertools.product(
         time_slots,
         courts,
@@ -59,7 +83,7 @@ def solve(
             <= 1
         )
 
-    # Every player should have between three and four matches.
+    # Players should have three or four matches.
     for p in men + women:
         model.add(sum(v for k, v in assignments.items() if player_present(p, k)) >= 3)
         model.add(sum(v for k, v in assignments.items() if player_present(p, k)) <= 4)
@@ -74,10 +98,6 @@ def solve(
             )
             <= 1
         )
-
-    # Every player should have a lunch break.
-    # for p in men + women:
-    # model.add(sum(v for k, v in assignments.items() if player_present(p, k) and k.time_slot in ['12pm', '1pm']) <= 1)
 
     # Every player is in at most one match per time slot.
     for p, time_slot in itertools.product(men + women, time_slots):
@@ -102,11 +122,30 @@ def solve(
             < 3
         )
 
+    # Pre-calculate the lateness score to apply for each court at a given time
+    # slot.
+    lateness_scores_per_time_slot = {time_slots[0]: 1}
+    for time_slot in time_slots[1:]:
+        prev_max_lateness_score = sum(
+            courts_count * v for v in lateness_scores_per_time_slot.values()
+        )
+        lateness_scores_per_time_slot[time_slot] = prev_max_lateness_score + 1
+
+    # Minimize the usage of later time slots.
+    lateness_score = 0
+    for (i, time_slot), (a_k, a_v) in itertools.product(
+        enumerate(time_slots), assignments.items()
+    ):
+        if a_k.time_slot == time_slot:
+            lateness_score += lateness_scores_per_time_slot[time_slot] * a_v
+    model.minimize(lateness_score)
+
     solver = cp_model.CpSolver()
     status = solver.Solve(model)
 
     final_assignments: list[Assignment] = (
-        [k for k, v in assignments.items() if solver.Value(v)]
+        # Pair men and women randomly within each group of four.
+        [maybe_switch_women(k) for k, v in assignments.items() if solver.Value(v)]
         if status == cp_model_pb2.OPTIMAL
         else []
     )
@@ -119,13 +158,11 @@ def generate_csv(
     men_count: int,
     women_count: int,
     courts_count: int,
-    time_slots: list[str],
 ) -> cp_model_pb2.CpSolverStatus:
     status, final_assignments = solve(
         men_count=men_count,
         women_count=women_count,
         courts_count=courts_count,
-        time_slots=time_slots,
     )
     if status == cp_model.OPTIMAL:
         with open(filename, "w") as f:
@@ -137,22 +174,59 @@ def generate_csv(
     return status
 
 
+def string_to_two_int_tuple(in_str: str) -> tuple[int, int]:
+    parts = in_str.split(",")
+    if len(parts) != 2:
+        raise ValueError(
+            textwrap.dedent(
+                """\
+                Input must be two integers separated by one comma and no empty
+                space.
+                """
+            )
+        )
+    return int(parts[0]), int(parts[1])
+
+
 def main():
-    men_count = 13
-    women_count = 13
-    courts_count = 3
-    print(f"Solving for {men_count} men, {women_count} women, {courts_count} courts.")
-    status = generate_csv(
-        filename=f"{men_count}men_{women_count}women_{courts_count}courts.csv",
-        men_count=men_count,
-        women_count=women_count,
-        courts_count=courts_count,
-        time_slots=["9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm"],
+    parser = argparse.ArgumentParser(
+        description=textwrap.dedent(
+            """\
+            Output rville tennis tournament day 1 brackets for various numbers
+            of men, women, and courts."""
+        ),
     )
-    if status == cp_model.OPTIMAL:
-        print("Solution found.")
-    else:
-        print("No solution found.")
+    parser.add_argument(
+        "--min_max_men_count", type=string_to_two_int_tuple, required=True
+    )
+    parser.add_argument(
+        "--min_max_women_count", type=string_to_two_int_tuple, required=True
+    )
+    parser.add_argument("--courts_count", type=int, required=True)
+
+    parsed = parser.parse_args()
+
+    courts_count: int = parsed.courts_count
+    min_max_men_count: tuple[int, int] = parsed.min_max_men_count
+    min_max_women_count: tuple[int, int] = parsed.min_max_women_count
+
+    for men_count, women_count in itertools.product(
+        range(min_max_men_count[0], min_max_men_count[1] + 1),
+        range(min_max_women_count[0], min_max_women_count[1] + 1),
+    ):
+        print(
+            f"Solving for {men_count} men, {women_count} women, {courts_count} courts."
+        )
+        status = generate_csv(
+            filename=f"{men_count}men_{women_count}women_{courts_count}courts.csv",
+            men_count=men_count,
+            women_count=women_count,
+            courts_count=courts_count,
+        )
+        if status == cp_model.OPTIMAL:
+            print("Solution found.")
+        else:
+            print("No solution found.")
 
 
 if __name__ == "__main__":
