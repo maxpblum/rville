@@ -1,4 +1,6 @@
 import argparse
+import json
+from collections.abc import Iterable, Sequence
 import copy
 import csv
 from dataclasses import dataclass
@@ -6,52 +8,60 @@ import itertools
 import math
 import random
 import textwrap
+from typing import TypeVar
 from ortools.sat.python import cp_model
 from ortools.sat import cp_model_pb2
 
-@dataclass
-class CourtAssignment:
-    m_a: str
-    m_b: str
-    w_a: str
-    w_b: str
+# PLANNING TO ABANDON MOST OF THE CURRENT APPROACH.
+# I made the strange decision a couple of days ago to try switching to
+# a model where each boolvar represents an entire *set of court assignments*
+# for a time slot across all courts. This opened the door to certain optimizations,
+# letting me *skip* making boolvars for combinations that make no sense, but
+# it also makes this whole thing monstrously hard to think about, and the sheer
+# number of boolvars seems likely to become an issue. The final straw was realizing
+# that I would need to take each boolvar and duplicate many times it to represent
+# "omitting" some of the matches from it.
 
-@dataclass
-class Assignment:
-    time_slot: str
-    courts: list[CourtAssignment]
-
-
-def one_based_range(prefix: str, count: int) -> list[str]:
-    return [f"{prefix}{n}" for n in range(1, count + 1)]
+T = TypeVar('T')
 
 
-def player_present_at_court(player: str, court_assignment: CourtAssignment) -> bool:
-    if player.startswith("M"):
-        return court_assignment.m_a == player or court_assignment.m_b == player
-    return court_assignment.w_a == player or court_assignment.w_b == player
+def all_subsets_of_size(superset: Iterable[T],
+                        size: int) -> frozenset[frozenset[T]]:
+    return frozenset(
+        frozenset(c) for c in itertools.combinations(superset, size))
 
 
-def player_present(player: str, assignment: Assignment) -> bool:
-    return any(player_present_at_court(player, court_assignment for court_assignment in assignment.courts))
+def all_pairings(players: int,
+                 courts: int) -> frozenset[frozenset[frozenset[int]]]:
+    # All sets of players that can fill courts with two players per court,
+    # e.g. all sets of 6 players if there are 3 courts.
+    all_full_courtings: frozenset[frozenset[int]] = all_subsets_of_size(
+        range(players), 2 * courts)
+    pairings: set[frozenset[frozenset[int]]] = set()
+    for full_courting in all_full_courtings:
+        for ordering in itertools.permutations(full_courting, 2 * courts):
+            pairs: set[frozenset[int]] = set()
+            for i in range(0, len(ordering), 2):
+                pairs.add(frozenset(ordering[i:i + 2]))
+            pairings.add(frozenset(pairs))
+    return frozenset(pairings)
 
 
-def shuffled(a: Assignment) -> Assignment:
-    a = copy.deepcopy(a)
-    random.shuffle(a.courts)
-    for c in a.courts:
-        if random.random() < 0.5:
-            a.w_a, a.w_b = a.w_b, a.w_a
-
-
-def all_possible_sets_of_quads_per_time_slot(men: int, women: int, courts_count: int) -> list[tuple[tuple[str, str], tuple[str, str]]]:
-    if len(men) < 2 or len(women) < 2 or courts_count == 0:
-        yield from []
-    for m_a_idx, m_a in enumerate(men[:-(courts_count - 1)]):
-        for m_b in men[m_a_idx + 1:]:
-            # We probably don't want a for loop if this is recursive.
-            pass
-
+# One "teamup" is a tuple consisting of two smaller tuples, the first of which
+# contains a pair of men for each court (each pair is a frozenset of two ints),
+# the second of which contains a pair of women for each court.
+def all_teamups(
+    men: int, women: int, courts: int
+) -> frozenset[tuple[Sequence[frozenset[int]], Sequence[frozenset[int]]]]:
+    teamups: set[tuple[Sequence[frozenset[int]], Sequence[frozenset[int]]]] = set()
+    all_men_pairings = all_pairings(men, courts)
+    all_women_pairings = all_pairings(women, courts)
+    for mp, wp in itertools.product(all_men_pairings, all_women_pairings):
+        sorted_mp = tuple(sorted(mp))
+        for w_ordering in itertools.permutations(wp, courts):
+            # Need a way to represent having only some courts occupied in a time slot
+            teamups.add((sorted_mp, w_ordering))
+    return frozenset(teamups)
 
 
 def solve(
@@ -60,9 +70,6 @@ def solve(
     courts_count: int,
 ) -> tuple[cp_model_pb2.CpSolverStatus, list[Assignment]]:
     model = cp_model.CpModel()
-    men = one_based_range(prefix="M", count=men_count)
-    women = one_based_range(prefix="W", count=women_count)
-    courts = one_based_range(prefix="C", count=courts_count)
     # We'd never really go to 6pm, but these are only theoretical time slots.
     time_slots = [
         "9am",
@@ -77,92 +84,51 @@ def solve(
         # "6pm",
     ]
 
-    assignments: dict[Assignment, cp_model.IntVar] = {}
+    assignments = {}
+    for time_slot, teamup in itertools.product(time_slots, all_teamups(men_count, women_count, courts_count)):
+        assignments[(time_slot, teamup)] = model.NewBoolVar(f"{(time_slot, teamup)}")
 
-    # NEW STRATEGY TODO: Make an assignment represent an ENTIRE time slot and all of the people assigned to each court. Do this to leverage itertools.combinations to get rid of redundant assignments of the same grouping to different courts in the same time slot.
+    # Every timeslot should have at most one assignment.
     for time_slot in time_slots:
-        quads = itertools.combinations(itertools.product(
-        assignments[Assignment(time_slot, court, m_a, m_b, w_a, w_b)] = (
-            model.NewBoolVar(f"{time_slot}_{court}_{m_a}_{m_b}_{w_a}_{w_b}")
-        )
-
-    # Every timeslot x court should have at most one assigned group.
-    for time_slot, court in itertools.product(time_slots, courts):
-        model.add(
-            sum(
-                v
-                for k, v in assignments.items()
-                if k.time_slot == time_slot and k.court == court
-            )
-            <= 1
-        )
+        model.add(sum(v for k, v in assignments.items() if k[0] == time_slot) <= 1)
 
     # Players should have three or four matches.
-    for p in men + women:
-        model.add(sum(v for k, v in assignments.items() if player_present(p, k)) >= 3)
-        model.add(sum(v for k, v in assignments.items() if player_present(p, k)) <= 4)
 
     # No two players should be in the same match twice.
-    for p1, p2 in itertools.combinations(men + women, 2):
-        model.add(
-            sum(
-                v
-                for k, v in assignments.items()
-                if player_present(p1, k) and player_present(p2, k)
-            )
-            <= 1
-        )
 
     # Every player is in at most one match per time slot.
-    for p, time_slot in itertools.product(men + women, time_slots):
-        model.add(
-            sum(
-                v
-                for k, v in assignments.items()
-                if player_present(p, k) and k.time_slot == time_slot
-            )
-            <= 1
-        )
 
     # No player should play three matches in a row.
-    time_streaks = [time_slots[i : i + 3] for i in range(len(time_slots) - 2)]
+    time_streaks = [time_slots[i:i + 3] for i in range(len(time_slots) - 2)]
     for p, streak in itertools.product(men + women, time_streaks):
-        model.add(
-            sum(
-                v
-                for k, v in assignments.items()
-                if player_present(p, k) and k.time_slot in streak
-            )
-            < 3
-        )
+        pass
 
     # Pre-calculate the lateness score to apply for each court at a given time
     # slot.
     lateness_scores_per_time_slot = {time_slots[0]: 1}
     for time_slot in time_slots[1:]:
         prev_max_lateness_score = sum(
-            courts_count * v for v in lateness_scores_per_time_slot.values()
-        )
+            courts_count * v for v in lateness_scores_per_time_slot.values())
         lateness_scores_per_time_slot[time_slot] = prev_max_lateness_score + 1
 
     # Minimize the usage of later time slots.
     lateness_score = 0
-    for (i, time_slot), (a_k, a_v) in itertools.product(
-        enumerate(time_slots), assignments.items()
-    ):
-        if a_k.time_slot == time_slot:
-            lateness_score += lateness_scores_per_time_slot[time_slot] * a_v
+    for (i, time_slot), (a_k,
+                         a_v) in itertools.product(enumerate(time_slots),
+                                                   assignments.items()):
+        pass
     model.minimize(lateness_score)
 
     solver = cp_model.CpSolver()
     status = solver.Solve(model)
 
-    final_assignments: list[Assignment] = (
-        # Pair men and women randomly within each group of four.
-        [maybe_switch_women(k) for k, v in assignments.items() if solver.Value(v)]
-        if status == cp_model_pb2.OPTIMAL
-        else []
-    )
+    final_assignments: list[Assignment] = []
+    # Pair men and women randomly within each group of four.
+    # TODO: Randomize court assignments, too.
+    # [
+    #     maybe_switch_women(k) for k, v in assignments.items()
+    #     if solver.Value(v)
+    # ] if status == cp_model_pb2.OPTIMAL else [])
 
     return status, final_assignments
 
@@ -181,9 +147,11 @@ def generate_csv(
     if status == cp_model.OPTIMAL:
         with open(filename, "w") as f:
             w = csv.writer(f)
-            w.writerow(["Time slot", "Court", "Man A", "Man B", "Woman A", "Woman B"])
+            w.writerow(
+                ["Time slot", "Court", "Man A", "Man B", "Woman A", "Woman B"])
             for final_assignment in final_assignments:
-                w.writerow(final_assignment)
+                raise NotImplementedError()
+                # w.writerow(final_assignment)
 
     return status
 
@@ -192,30 +160,23 @@ def string_to_two_int_tuple(in_str: str) -> tuple[int, int]:
     parts = in_str.split(",")
     if len(parts) != 2:
         raise ValueError(
-            textwrap.dedent(
-                """\
+            textwrap.dedent("""\
                 Input must be two integers separated by one comma and no empty
                 space.
-                """
-            )
-        )
+                """))
     return int(parts[0]), int(parts[1])
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=textwrap.dedent(
-            """\
+    parser = argparse.ArgumentParser(description=textwrap.dedent("""\
             Output rville tennis tournament day 1 brackets for various numbers
-            of men, women, and courts."""
-        ),
-    )
-    parser.add_argument(
-        "--min_max_men_count", type=string_to_two_int_tuple, required=True
-    )
-    parser.add_argument(
-        "--min_max_women_count", type=string_to_two_int_tuple, required=True
-    )
+            of men, women, and courts."""), )
+    parser.add_argument("--min_max_men_count",
+                        type=string_to_two_int_tuple,
+                        required=True)
+    parser.add_argument("--min_max_women_count",
+                        type=string_to_two_int_tuple,
+                        required=True)
     parser.add_argument("--courts_count", type=int, required=True)
 
     parsed = parser.parse_args()
@@ -225,14 +186,15 @@ def main():
     min_max_women_count: tuple[int, int] = parsed.min_max_women_count
 
     for men_count, women_count in itertools.product(
-        range(min_max_men_count[0], min_max_men_count[1] + 1),
-        range(min_max_women_count[0], min_max_women_count[1] + 1),
+            range(min_max_men_count[0], min_max_men_count[1] + 1),
+            range(min_max_women_count[0], min_max_women_count[1] + 1),
     ):
         print(
             f"Solving for {men_count} men, {women_count} women, {courts_count} courts."
         )
         status = generate_csv(
-            filename=f"{men_count}men_{women_count}women_{courts_count}courts.csv",
+            filename=
+            f"{men_count}men_{women_count}women_{courts_count}courts.csv",
             men_count=men_count,
             women_count=women_count,
             courts_count=courts_count,
