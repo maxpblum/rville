@@ -125,7 +125,8 @@ def solve(
     # Every player is in at most one match per time slot.
     for p, time_slot in itertools.product(all_players, time_slots):
         model.add(
-            sum(a.v for a in assignments if a.a.time_slot == time_slot) <= 1)
+            sum(a.v for a in assignments
+                if a.a.player_present(p) and a.a.time_slot == time_slot) <= 1)
 
     # No player should play three matches in a row.
     # time_streaks = [time_slots[i : i + 3] for i in range(len(time_slots) - 2)]
@@ -183,7 +184,7 @@ def string_to_two_int_tuple(in_str: str) -> tuple[int, int]:
 
 
 def get_min_matches_to_try(men_count: int, women_count: int) -> int:
-    return math.ceil(3 * max(men_count, women_count) / 2)
+    return 3 * math.ceil(max(men_count, women_count) / 2)
 
 
 def main():
@@ -212,7 +213,8 @@ def main():
             f"Solving for {men_count} men, {women_count} women, {courts_count} courts."
         )
         min_matches_to_try = get_min_matches_to_try(men_count, women_count)
-        for matches_count in range(min_matches_to_try, min_matches_to_try * 2):
+        solution_found = False
+        for matches_count in range(min_matches_to_try, min_matches_to_try * 5):
             print(f"Trying {matches_count} matches.")
             status = generate_csv(
                 filename=
@@ -223,9 +225,9 @@ def main():
                 matches_count=matches_count,
             )
             if status == cp_model.OPTIMAL:
-                print("Solution found.")
+                solution_found = True
                 break
-        print("No solution found.")
+        print(f"Solution found: {solution_found}")
 
 
 if __name__ == "__main__":
