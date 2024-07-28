@@ -63,10 +63,10 @@ def solve(
 
     men = [Player(gender="M", id=id) for id in range(1, men_count + 1)]
     max_player = men[3]
-    max_time_slots = ['11am', '12pm', '2pm']
+    max_time_slots = ['11am', '12pm', '3pm']
     women = [Player(gender="W", id=id) for id in range(1, women_count + 1)]
     gigi_player = women[5]
-    gigi_time_slots = ['9am', '10am', '1pm']
+    gigi_time_slots = ['9am', '10am', '2pm']
     all_players: list[Player] = men + women
 
     # A mapping from time slot to number of courts.
