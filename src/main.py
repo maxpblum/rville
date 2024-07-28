@@ -239,6 +239,13 @@ def main():
             continue
         combinations_tried.add(sorted_order)
 
+        if sorted_order[1] - sorted_order[0] > 3:
+            # If the number of men and women varies by more than 3, it often or
+            # always seems to make solutions infeasible. Let's cross this bridge
+            # when we come to it: If we have a combination of people for whom
+            # the result is infeasible, try relaxing some constraints.
+            continue
+
         print(
             f"Solving for {men_count} men, {women_count} women, {courts_count} courts."
         )
