@@ -1,8 +1,6 @@
 import argparse
 import collections
-from collections.abc import Iterable
 import csv
-from dataclasses import dataclass
 import itertools
 import math
 import random
