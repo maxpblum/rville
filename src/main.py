@@ -248,7 +248,7 @@ def main():
                                    len(ALL_TIME_SLOTS) * courts_count + 1):
             print(f"Trying {matches_count} matches.")
 
-            blampos_name_part = 'helpingblampos' if accommodate_blampos else ''
+            blampos_name_part = '_helpingblampos' if accommodate_blampos else ''
 
             status = generate_csv(
                 filename=
