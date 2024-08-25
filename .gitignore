@@ -1,2 +1,4 @@
 lib/*
-*.csv
+roster.csv
+*.html
+namelist.txt

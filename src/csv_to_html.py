@@ -1,6 +1,18 @@
+import base64
 import csv
 import dataclasses
 import textwrap
+
+
+# To use:
+
+# 1. Update the filename to the CSV for the appropriate number
+#    of men and women. (You may need to take one for the reversed
+#    numbers and switch it around first.)
+
+# 2. Update the list of actual men's and women's names.
+
+# 3. Run.
 
 
 @dataclasses.dataclass
@@ -55,7 +67,7 @@ def make_all_time_slot_rows(time_slots_across_courts: TimeSlotsAcrossCourts):
 
 if __name__ == '__main__':
   time_slots = TimeSlotsAcrossCourts([])
-  with open('12men_13women_3courts.csv', 'r') as csvfile:
+  with open('13men_14women_3courts.csv', 'r') as csvfile:
     reader = iter(csv.reader(csvfile))
 
     # Throw out the header row
@@ -77,6 +89,14 @@ if __name__ == '__main__':
       time_slot.teams_across_courts[1].teams.append(
           Team(int(row[4]), int(row[5])))
 
+  with open('namelist.txt', 'r') as namelist_file:
+    namelines = '\n'.join(f'{l}<br/>' for l in namelist_file.readlines())
+
+  with open('qr_code.png', 'rb') as qr_code_file:
+    content = qr_code_file.read()
+    base64_utf8_str = base64.b64encode(content).decode('utf-8')
+    qr_code_dataurl = f'data:image/png;base64,{base64_utf8_str}'
+
   named_courts = [
       f'Court {i}' for i in range(
           1,
@@ -85,10 +105,20 @@ if __name__ == '__main__':
   court_ths = '\n'.join(f'<th scope="col">{c}</th>' for c in named_courts)
   style = '''\
 * { font-family: sans-serif; }
-table, th, td { border: solid; padding: 1em; }
+table, th, td { border: solid; padding: 0.5em; }
 table { float: left; margin-right: 1em; }
-legend { float: right; }
+legend, img { float: right; }
+img {
+  position: fixed;
+  right: 0px;
+  bottom: 0px;
+  width: 40%;
+}
 #formlink { font-size: 0.8em; }
+#scores {
+  width: 60%;
+  float: left;
+}
 '''
 
   with open('table.html', 'w') as f:
@@ -109,13 +139,13 @@ legend { float: right; }
           Court 1 = Town court<br/>
           Court 2 = Rooney court<br/>
           Court 3 = Douglas court<br/>
-          M1 = Max Blum-Campo<br/>
-          M2 = Blax Mum-Campo<br/>
-          M3 = Cax Mum-Blampo<br/>
+          {namelines}
+          <div id="scores">
           <h1>Scores</h1>
           Please write your scores here and then submit them
           online at
-          <span id="formlink">https://forms.gle/T6JKqzox57oiEyxL7</span><br/>
+          <span id="formlink">https://forms.gle/T6JKqzox57oiEyxL7</span>
+          or using the QR code.<br/>
           Match 1 games WON <input value="   "></input><br/>
           Match 1 games LOST <input value="   "></input><br/>
           Match 2 games WON <input value="   "></input><br/>
@@ -125,4 +155,6 @@ legend { float: right; }
           Match 4 games LOST <input value="   "></input><br/>
           Match 4 games LOST <input value="   "></input><br/>
           </div>
+          </div>
+          <img src="{qr_code_dataurl}" alt="QR code" />
           '''))
