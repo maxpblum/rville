@@ -10,6 +10,9 @@ from typing import Literal
 from ortools.sat.python import cp_model
 from ortools.sat import cp_model_pb2
 
+# This feature currently seems to lead to infeasibility.
+NO_REPEAT_TOWN_COURT = False
+
 # We'd never really go to 6pm, but these are only theoretical time slots.
 TimeSlot = Literal[
     "9am",
@@ -41,8 +44,10 @@ ALL_GENDERS: list[Gender] = ["M", "W"]
 
 Player = collections.namedtuple('Player', ['gender', 'id'])
 
-Assignment = collections.namedtuple('Assignment',
-                                    ['time_slot', 'men', 'women'])
+Assignment = collections.namedtuple(
+    'Assignment', ['time_slot', 'men', 'women'] +
+    (['is_town_court'] if NO_REPEAT_TOWN_COURT else []),
+    defaults=([False] if NO_REPEAT_TOWN_COURT else []))
 
 
 def player_present(a: Assignment, p: Player):
@@ -97,6 +102,10 @@ def solve(
                                 women=(women_pair[0].id, women_pair[1].id))
         var = model.NewBoolVar(repr(assignment))
         assignments.append(AssignmentVar(a=assignment, v=var))
+        if NO_REPEAT_TOWN_COURT:
+            assignment = assignment._replace(is_town_court=True)
+            var = model.NewBoolVar(repr(assignment))
+            assignments.append(AssignmentVar(a=assignment, v=var))
 
     # Every court should have at most one match per time slot.
     for (time_slot, ts_courts_count) in settings.items():
@@ -104,8 +113,20 @@ def solve(
             sum(a.v for a in assignments
                 if a.a.time_slot == time_slot) <= ts_courts_count)
 
+    # If town court is bad, there should be <= 1 town court
+    # match per time slot, no player should play on it more than
+    # twice.
+    if NO_REPEAT_TOWN_COURT:
+        for time_slot in time_slots:
+            model.add(
+                sum(a.v for a in assignments
+                    if a.a.is_town_court and a.a.time_slot == time_slot) <= 1)
+        for p in all_players:
+            model.add(
+                sum(a.v for a in assignments if player_present(a.a, p)) <= 2)
+
     # Players should have three or four matches.
-    for p in men + women:
+    for p in all_players:
         model.add(sum(a.v for a in assignments if player_present(a.a, p)) >= 3)
         model.add(sum(a.v for a in assignments if player_present(a.a, p)) <= 4)
 
@@ -161,7 +182,14 @@ def generate_csv(
     for a in final_assignments:
         grouped_by_time_slot[a.time_slot].append(a)
     for assignments in grouped_by_time_slot.values():
-        random.shuffle(assignments)
+        if NO_REPEAT_TOWN_COURT:
+            initial_assignments = [a for a in assignments if a.is_town_court]
+            remaining = [a for a in assignments if not a.is_town_court]
+        else:
+            initial_assignments = []
+            remaining = assignments
+        random.shuffle(remaining)
+        assignments = initial_assignments + remaining
     shuffled_assignments: list[tuple[Assignment, int]] = [
         (a, court) for assignments in grouped_by_time_slot.values()
         for (a, court) in zip(assignments, range(1, courts_count + 1))
